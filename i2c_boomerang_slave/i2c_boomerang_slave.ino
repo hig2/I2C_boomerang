@@ -1,29 +1,50 @@
 //$1 14 0 0 0 1 0 0 90 101 1 208;
 #include <Wire.h>
 
-int inArray[12];
-int outArray[5];
+int inArray[5];
+int outArray[12] = {1, 14, 0, 0, 0, 1, 0, 0, 90, 101, 1, 208};
 int slaveAdress = 0x01;
 
 
 void setup() {
   Serial.begin(9600);
-  Wire.begin(); // инициализируем устройсво как master
-
+  Wire.begin(0x01); // инициализируем устройсво как slave
+  Wire.onRequest(slaveTask);
 }
 
 void loop() {
-  
+  delay(20);
+  write_I2C(outArray, (sizeof(outArray) / sizeof(outArray[0])));
 }
 
-void masterTask(int timer){
-  
+void slaveTask(){
+  write_I2C(outArray, (sizeof(outArray) / sizeof(outArray[0])));  
 }
 
 
+void write_I2C(int outArray[], int lenInArray){
+  const byte separatorSymbol = (byte) ' ';
+  const byte startSymbol = (byte) '$';
+  const byte finishSymbol = (byte) ';';
+  String acc = "$";
+  
+  for(int i = 0; i < lenInArray; i++){
+    if(i == (lenInArray - 1)){
+      acc += (String)outArray[i] + ";";
+     break;
+    }
+    acc += (String)outArray[i] + " ";
+  }
 
-bool read_I2C(int slaveAdress,int inArray[]){
-  const int lenInArray = sizeof(inArray ) / sizeof(inArray[0]);
+  Serial.println(lenInArray);
+  
+  byte result[acc.length()];
+  acc.getBytes(result, acc.length());
+ // Wire.write(result, acc.length());
+}
+
+
+bool read_I2C(int slaveAdress,int inArray[], int lenInArray){
   const byte startSymbol = (byte) '$'; 
   const byte finishSymbol = (byte) ';';
   static byte globalBuffer [lenInArray * 5];
@@ -46,7 +67,7 @@ bool read_I2C(int slaveAdress,int inArray[]){
         continue;
       }else if (secondBuffer[i] == finishSymbol) {
            //обновляем глобальное состояние
-        inArrayUpload(secondBuffer, realByte, inArray);
+        inArrayUpload(secondBuffer, realByte, inArray, lenInArray);
         realByte = 0;
         startReadFlag = false;
         indexGlobalBuffer = 0;
@@ -68,8 +89,7 @@ bool read_I2C(int slaveAdress,int inArray[]){
   }
 }
 
-void inArrayUpload (byte newInArray[], int realByte, int inArray[]){
-  const int lenInArray = sizeof(inArray ) / sizeof(inArray[0]);
+void inArrayUpload (byte newInArray[], int realByte, int inArray[],int lenInArray){
   const byte separatorSymbol = (byte) ' ';
   int bufferArray[lenInArray];
  
