@@ -2,9 +2,12 @@
 #include <Wire.h>
 
 int inArray[12];
-int outArray[5];
+int outArray[5] = {1, 2, 3, 4, 0};
 int slaveAdress = 0x01;
 
+const byte separatorSymbol = (byte) ' ';
+const byte startSymbol = (byte) '$';
+const byte finishSymbol = (byte) ';';
 
 void setup() {
   Serial.begin(9600);
@@ -13,19 +16,49 @@ void setup() {
 }
 
 void loop() {
-  
+  masterTask(1000);
 }
 
 void masterTask(int timer){
+  static unsigned long t = 0;
+  if((millis() - t) > timer){
+    t = millis();
+    read_I2C_master(slaveAdress);
+    write_I2C_master(slaveAdress);
+  }
+}
+
+
+void write_I2C_master(int slaveAdress){
+  const int lenOutArray = sizeof(outArray) / sizeof(outArray[0]);
+  String acc = (String)(char)startSymbol;
+  int crc = 0;
   
+  for (int n = 0; n < lenOutArray - 1; n++) {
+    crc += outArray[n];
+  }
+  outArray[lenOutArray - 1] = crc;
+  
+  for(int i = 0; i < lenOutArray; i++){
+    if(i == (lenOutArray - 1)){
+      acc += (String)outArray[i] + (char)finishSymbol;
+     break;
+    }
+    acc += (String)outArray[i] + (char)separatorSymbol;
+  }
+
+  
+  byte result[acc.length() + 1];
+  acc.getBytes(result, acc.length() + 1);
+  Wire.beginTransmission(slaveAdress); 
+  Wire.write(result, acc.length());
+  Wire.endTransmission();     
 }
 
 
 
-bool read_I2C(int slaveAdress,int inArray[]){
+bool read_I2C_master(int slaveAdress){
   const int lenInArray = sizeof(inArray ) / sizeof(inArray[0]);
-  const byte startSymbol = (byte) '$'; 
-  const byte finishSymbol = (byte) ';';
   static byte globalBuffer [lenInArray * 5];
   static int indexGlobalBuffer = 0;
   static bool startReadFlag = false;
@@ -37,7 +70,7 @@ bool read_I2C(int slaveAdress,int inArray[]){
     for(int i = 0; i < numBytes; i++){
       secondBuffer[i] = Wire.read();
     }
-
+      
     for (int i = 0; i < numBytes; i++) {
       if (secondBuffer[i] == startSymbol) {
         indexGlobalBuffer = 0;
@@ -46,7 +79,9 @@ bool read_I2C(int slaveAdress,int inArray[]){
         continue;
       }else if (secondBuffer[i] == finishSymbol) {
            //обновляем глобальное состояние
-        inArrayUpload(secondBuffer, realByte, inArray);
+         
+         
+        inArrayUpload(globalBuffer, realByte, inArray, lenInArray);
         realByte = 0;
         startReadFlag = false;
         indexGlobalBuffer = 0;
@@ -68,11 +103,9 @@ bool read_I2C(int slaveAdress,int inArray[]){
   }
 }
 
-void inArrayUpload (byte newInArray[], int realByte, int inArray[]){
-  const int lenInArray = sizeof(inArray ) / sizeof(inArray[0]);
-  const byte separatorSymbol = (byte) ' ';
+void inArrayUpload (byte newInArray[], int realByte, int inArray[], int lenInArray){
   int bufferArray[lenInArray];
- 
+
   for (int i = 0, acc = 0, factor = 0, indexOfBufferArray = 0; i < realByte + 1; i++) {
     if (i == realByte) {
       bufferArray[indexOfBufferArray] = acc;
@@ -98,6 +131,8 @@ void inArrayUpload (byte newInArray[], int realByte, int inArray[]){
         return ;
      }    
   }
+
+  
   
   int crc = 0;
   for (int n = 0; n < lenInArray - 1; n++) {
@@ -107,216 +142,15 @@ void inArrayUpload (byte newInArray[], int realByte, int inArray[]){
   if (bufferArray[lenInArray - 1] == crc) {
     //все ок
     for(int i = 0; i < lenInArray; i++){
-      inArray[i] = newInArray[i];
-      Serial.print(newInArray[i]);
-      Serial.print(" ");
+      inArray[i] = bufferArray[i];
+     Serial.print(inArray[i]);
+     Serial.print(" ");
     }
-    Serial.println("");
+      Serial.println("");
     return ;
+    
   } else {
     // была ошибка crc                 
     return ;
   }
 } 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-
-void serialTest(int timer){
-  static unsigned long t = 0;
-  if((millis() - t) > timer){
-    t = millis();
-    Serial.println("$1 85 86;");
-  }
-}
-
-
-
-
-void serialMaster(){
-  static int lengthBuferComand = sizeof(buferComand) / sizeof(buferComand[0]);
-  String acc = "$";
-  unsigned long crc = 0;
-  int lengthGlobalStateBufer = 12;
-  int globalStateBufer[lengthGlobalStateBufer];
-   if(parsePacket((int*)globalStateBufer)){
-    for(byte i = 0; i < lengthGlobalStateBufer - 1; i++){ // расчет CRC
-      crc += globalStateBufer[i];
-    }
-
-    if(globalStateBufer[lengthGlobalStateBufer - 1] == crc){ //проверка контрольной суммы пройдена
-      //записываем результаты в необходимые перменные
-    
-     //сразу же формируем ответ на отправку
-     crc = 0; //очищаем преведущую CRC
-     for(byte i = 0; i < lengthBuferComand; i++){ // расчет CRC
-        crc += buferComand[i];
-     }
-     for(byte i = 0; i < lengthBuferComand; i++){ // формируем посылку 
-      if(lengthBuferComand - 1 == i){
-          acc+= crc;
-          acc+= ";";
-        }else{
-          acc+= buferComand[i];
-          acc+= " ";
-        }  
-      }
-      Serial.println(acc); // отпровляем посылку
-    }else{
-      //обработка ошибки
-    } 
-  }
-}
-
-
-boolean parsePacket(int *intArray) {
-    if (Serial.available()) {
-        uint32_t timeoutTime = millis();
-        int value = 0;
-        byte index = 0;
-        boolean parseStart = 0;
-
-        while (millis() - timeoutTime < 100) {
-            if (Serial.available()) {
-                timeoutTime = millis();
-                if (Serial.peek() == '$') {
-                    parseStart = true;
-                    Serial.read();
-                    continue;
-                }
-                if (parseStart) {
-                    if (Serial.peek() == ' ') {
-                        intArray[index] = value / 10;
-                        value = 0;
-                        index++;
-                        Serial.read();
-                        continue;
-                    }
-                    if (Serial.peek() == ';') {
-                        intArray[index] = value / 10;
-                        Serial.read();
-                        return true;
-                    }
-                    value += Serial.read() - '0';
-                    value *= 10;
-                }
-                else
-                {
-                    Serial.read(); //возможно не будет работать нужна очистка 
-                }
-            }
-        }
-    }
-    return false;
-}
-
-
-
-bool readSerial(int inArray[]){
-    const int lenInArray = sizeof(inArray) / sizeof(inArray[0]);
-    const byte startSymbol = (byte) '$';
-    const byte finishSymbol = (byte) ';';
-    static byte globalBuffer [lenInArray * 5];
-    static int indexGlobalBuffer = 0;
-    static bool startReadFlag = false;
-    static int realByte = 0;
-  delay(20);
-  while (Serial.available()) {
-      int lenReadBufer = Serial.available();
-      byte readBuffer[lenReadBufer];
-      int numRead = Serial.readBytes(readBuffer, lenReadBufer);
-      
-      
-      for (int i = 0; i < numRead; i++) {
-        if (readBuffer[i] == startSymbol) {
-            indexGlobalBuffer = 0;
-            startReadFlag = true;
-            realByte = 0;
-            continue;
-        }else if (readBuffer[i] == finishSymbol) {
-           //обновляем глобальное состояние
-          inArrayUpload(globalBuffer, realByte);
-          realByte = 0;
-          startReadFlag = false;
-          indexGlobalBuffer = 0;
-          return true;
-
-        }
-
-        if (startReadFlag) {
-          if(indexGlobalBuffer == (lenInArray * 5)){
-            realByte = 0;
-            startReadFlag = false;
-            indexGlobalBuffer = 0;
-            return false;
-          }
-          globalBuffer[indexGlobalBuffer++] = readBuffer[i];
-          realByte++;
-        }
-    }
-  }
-  return false;  
-}
-
-void inArrayUpload (byte newInArray[], int realByte){
-  int lenInArray = sizeof(inArray) / sizeof(inArray[0]);
-  byte separatorSymbol = (byte) ' ';
-  int bufferArray[lenInArray];
- 
-  for (int i = 0, acc = 0, factor = 0, indexOfBufferArray = 0; i < realByte + 1; i++) {
-    if (i == realByte) {
-       bufferArray[indexOfBufferArray] = acc;
-       break;
-    }
-
-    if (newInArray[i] == separatorSymbol) {
-        bufferArray[indexOfBufferArray] = acc;
-        indexOfBufferArray++;
-        
-        if (indexOfBufferArray == (lenInArray)) {
-          // пришедший пакет больше ожидаемого
-          return;
-        }
-        acc = 0;
-        factor = 0;
-     } else if (((int)newInArray[i] - 48) >= 0 && ((int)newInArray[i] - 48) <= 9) {
-         acc = ((acc * factor) + ((int)newInArray[i] - 48));
-         factor = 10;
-     } else {
-         // была ошибка валидности пакета
-         return ;
-     }    
-   }
-  
-        int crc = 0;
-        for (int n = 0; n < lenInArray - 1; n++) {
-            crc += bufferArray[n];
-        }
-        
-        if (bufferArray[lenInArray - 1] == crc) {
-            //все ок
-            Serial.println("Yes");
-            return ;
-        } else {
-            // была ошибка crc
-                    
-            return ;
-        }
-} 
-
-*/
